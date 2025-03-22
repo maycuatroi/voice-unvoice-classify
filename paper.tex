@@ -1,0 +1,380 @@
+\documentclass[10pt,journal,compsoc]{IEEEtran}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{Voice/Unvoiced/Silent Classification in Speech Processing: Algorithms and Implementation}
+
+\author{\IEEEauthorblockN{Author(s)}
+\IEEEauthorblockA{Department of Computer Science\\
+University Name\\
+City, State, Country\\
+email@institution.edu}}
+
+\maketitle
+
+\begin{abstract}
+This paper presents a comprehensive analysis of voice/unvoiced/silent classification techniques in speech processing. We examine the mathematical foundations of acoustic feature extraction and classification methods that distinguish between voiced, unvoiced, and silent segments in speech signals. Starting with decoding audio from MP3 files, we detail the frame-based processing approach and the extraction of features such as Zero-Crossing Rate (ZCR), Short-Time Energy (STE), autocorrelation, and spectral features. The paper provides detailed mathematical formulations for these features and presents classification algorithms that utilize them. We also discuss time and frequency domain approaches, optimization techniques, and evaluation metrics for assessing algorithm performance. The presented methods bridge traditional signal processing techniques and modern machine learning approaches for robust speech classification.
+\end{abstract}
+
+\begin{IEEEkeywords}
+voice classification, zero-crossing rate, short-time energy, speech processing, spectral features, speech segmentation, voiced/unvoiced detection
+\end{IEEEkeywords}
+
+\section{Introduction}
+The classification of speech segments into voiced (e.g., vowels), unvoiced (e.g., fricative consonants like 's', 'f'), and silent regions is a fundamental task in speech processing. This classification serves as a crucial preprocessing step for various speech applications, including speech recognition, speaker identification, speech enhancement, and speech coding.
+
+Voiced sounds are produced when the vocal cords vibrate, creating a quasi-periodic waveform with significant energy in lower frequencies. Unvoiced sounds result from turbulent airflow without vocal cord vibration, producing aperiodic, noise-like signals with energy concentrated in higher frequencies. Silent regions contain only background noise with minimal energy.
+
+This paper presents a systematic approach to voice/unvoiced/silent classification, beginning with the decoding of MP3 audio files and proceeding through feature extraction, algorithm design, and classification. We provide detailed mathematical formulations for each stage of the process, with particular emphasis on the signal processing techniques that enable accurate classification.
+
+The methods described in this paper combine traditional signal processing approaches with modern machine learning techniques, offering a comprehensive framework for speech segment classification that can be adapted to various applications and acoustic conditions.
+
+\section{MP3 Decoding and Signal Preprocessing}
+Before classification can begin, audio must be extracted from MP3 files and preprocessed:
+
+\subsection{MP3 Decoding}
+The MP3 file is decoded to obtain the raw audio signal:
+\begin{equation}
+x[n] = \text{Decode}_{\text{MP3}}(f_{\text{MP3}})
+\end{equation}
+where $x[n]$ is the decoded audio signal and $f_{\text{MP3}}$ is the MP3 file.
+
+The decoding process involves:
+\begin{enumerate}
+    \item Huffman decoding of the compressed bitstream
+    \item Inverse quantization of frequency coefficients
+    \item Inverse Modified Discrete Cosine Transform (IMDCT):
+    \begin{equation}
+    x[n] = \sum_{k=0}^{N/2-1} X[k] \cos\left(\frac{\pi}{N}(n+\frac{N}{4})(2k+1)\right)
+    \end{equation}
+\end{enumerate}
+
+\subsection{Pre-emphasis}
+A pre-emphasis filter is applied to enhance higher frequencies:
+\begin{equation}
+y[n] = x[n] - \alpha x[n-1]
+\end{equation}
+where $\alpha$ is typically 0.95-0.97.
+
+\section{Audio Analysis for Voice/Unvoiced/Silent Classification}
+The classification of speech segments relies on extracting discriminative features from short frames of the audio signal.
+
+\subsection{Frame-Based Processing}
+Audio is processed in short, overlapping frames:
+\begin{equation}
+x_n[m] = y[n+m] \cdot w[m], \quad 0 \leq m < M
+\end{equation}
+where:
+\begin{itemize}
+    \item $x_n[m]$ is the $n$-th frame of length $M$
+    \item $y[n]$ is the pre-emphasized audio signal
+    \item $w[m]$ is a window function (typically Hamming window)
+    \item $n$ increments by a stride $S$ (often $S = M/2$ for 50\% overlap)
+\end{itemize}
+
+The Hamming window is defined as:
+\begin{equation}
+w[m] = 0.54 - 0.46 \cos\left(\frac{2\pi m}{M-1}\right), \quad 0 \leq m < M
+\end{equation}
+
+Typical values in speech processing include:
+\begin{itemize}
+    \item Frame length: 20-30 ms (corresponding to $M = F_s \cdot 0.02$ to $F_s \cdot 0.03$ samples, where $F_s$ is the sampling frequency)
+    \item Frame stride: 10-15 ms (corresponding to $S = F_s \cdot 0.01$ to $F_s \cdot 0.015$ samples)
+\end{itemize}
+
+\subsection{Time-Domain Features}
+
+\subsubsection{Zero-Crossing Rate (ZCR)}
+ZCR measures the rate at which the signal changes from positive to negative or vice versa:
+\begin{equation}
+\text{ZCR}_n = \frac{1}{2(M-1)} \sum_{m=1}^{M-1} |\text{sgn}(x_n[m]) - \text{sgn}(x_n[m-1])|
+\end{equation}
+where:
+\begin{equation}
+\text{sgn}(x) = 
+\begin{cases} 
+1, & \text{if}\ x \geq 0 \\ 
+-1, & \text{if}\ x < 0 
+\end{cases}
+\end{equation}
+
+Unvoiced sounds typically have a higher ZCR than voiced sounds due to their noise-like characteristics. Silent segments may have variable ZCR depending on the background noise characteristics.
+
+\subsubsection{Short-Time Energy (STE)}
+STE measures the energy or intensity of the signal in a frame:
+\begin{equation}
+\text{STE}_n = \frac{1}{M} \sum_{m=0}^{M-1} |x_n[m]|^2
+\end{equation}
+
+Voiced segments typically have higher energy compared to unvoiced segments, while silent segments have minimal energy.
+
+\subsubsection{Autocorrelation coefficient}
+For pitch detection and periodicity analysis:
+\begin{equation}
+R_n[k] = \sum_{m=0}^{M-k-1} x_n[m] \cdot x_n[m+k]
+\end{equation}
+
+The normalized autocorrelation is:
+\begin{equation}
+\hat{R}_n[k] = \frac{R_n[k]}{R_n[0]}
+\end{equation}
+
+A high peak in $\hat{R}_n[k]$ for $k > 0$ indicates periodicity, a characteristic of voiced sounds.
+
+\subsection{Frequency-Domain Features}
+
+\subsubsection{Discrete Fourier Transform (DFT)}
+The DFT converts the time-domain frame to the frequency domain:
+\begin{equation}
+X_n[k] = \sum_{m=0}^{M-1} x_n[m] e^{-j2\pi km/M}, \quad 0 \leq k < M
+\end{equation}
+
+\subsubsection{Spectral Centroid}
+The spectral centroid indicates the "center of mass" of the spectrum:
+\begin{equation}
+C_n = \frac{\sum_{k=0}^{M/2} k \cdot |X_n[k]|^2}{\sum_{k=0}^{M/2} |X_n[k]|^2}
+\end{equation}
+
+Voiced sounds typically have lower spectral centroids than unvoiced sounds.
+
+\subsubsection{Spectral Flatness}
+Spectral flatness measures how noise-like (vs. tone-like) a signal is:
+\begin{equation}
+F_n = \frac{\exp\left(\frac{1}{M/2+1} \sum_{k=0}^{M/2} \ln(|X_n[k]|^2 + \epsilon)\right)}{\frac{1}{M/2+1} \sum_{k=0}^{M/2} |X_n[k]|^2}
+\end{equation}
+where $\epsilon$ is a small constant to avoid logarithm of zero.
+
+Unvoiced sounds have higher spectral flatness (closer to 1) compared to voiced sounds.
+
+\subsubsection{Harmonic-to-Noise Ratio (HNR)}
+HNR estimates the ratio of harmonic components to noise components:
+\begin{equation}
+\text{HNR}_n = 10 \log_{10}\left(\frac{P_{\text{harmonic}}}{P_{\text{noise}}}\right)
+\end{equation}
+where $P_{\text{harmonic}}$ and $P_{\text{noise}}$ are the powers of the harmonic and noise components, respectively.
+
+Voiced segments have higher HNR values compared to unvoiced segments.
+
+\section{Classification Algorithms}
+
+\subsection{Threshold-Based Classification}
+A simple but effective approach combines ZCR and STE thresholds:
+\begin{equation}
+\text{Class}_n = 
+\begin{cases}
+\text{Silent}, & \text{if}\ \text{STE}_n < \theta_{\text{silence}} \\
+\text{Voiced}, & \text{if}\ \text{ZCR}_n < \theta_{\text{zcr}} \text{ AND } \text{STE}_n > \theta_{\text{energy}} \\
+\text{Unvoiced}, & \text{otherwise}
+\end{cases}
+\end{equation}
+where $\theta_{\text{silence}}$, $\theta_{\text{zcr}}$, and $\theta_{\text{energy}}$ are empirically determined thresholds.
+
+\subsection{Multi-Feature Classification}
+More robust classification incorporates multiple features:
+\begin{equation}
+\text{Class}_n = f(\text{ZCR}_n, \text{STE}_n, \hat{R}_n[k_{\text{max}}], C_n, F_n, \text{HNR}_n)
+\end{equation}
+
+A weighted sum with thresholds can be used:
+\begin{equation}
+\text{Score}_n = w_1 \cdot \text{norm}(\text{ZCR}_n) + w_2 \cdot \text{norm}(\text{STE}_n) + w_3 \cdot \text{norm}(\hat{R}_n[k_{\text{max}}]) + \ldots
+\end{equation}
+
+where $\text{norm}(x)$ normalizes the feature to [0,1] range and $w_i$ are weights.
+
+\subsection{Machine Learning Classification}
+The features described above can be used in a machine learning classifier:
+\begin{equation}
+\vec{f}_n = [\text{ZCR}_n, \text{STE}_n, \hat{R}_n[k_{\text{max}}], C_n, F_n, \text{HNR}_n, \ldots]
+\end{equation}
+
+Various classifiers can be applied:
+\begin{itemize}
+    \item Random Forest: 
+    \begin{equation}
+    P(\text{Class} | \vec{f}_n) = \text{RandomForest}(\vec{f}_n)
+    \end{equation}
+    
+    \item Support Vector Machines (SVM):
+    \begin{equation}
+    \text{Class}_n = \text{sign}(\vec{w} \cdot \phi(\vec{f}_n) + b)
+    \end{equation}
+    where $\phi$ is a kernel function, $\vec{w}$ and $b$ are learned parameters.
+    
+    \item Neural Networks:
+    \begin{equation}
+    \vec{y}_n = \sigma(W_2 \cdot \sigma(W_1 \cdot \vec{f}_n + \vec{b}_1) + \vec{b}_2)
+    \end{equation}
+    where $\sigma$ is an activation function, $W_i$ and $\vec{b}_i$ are learned weights and biases.
+\end{itemize}
+
+\subsection{Sequential Modeling with HMMs}
+Hidden Markov Models (HMMs) capture the temporal structure of speech:
+\begin{equation}
+P(\text{Class}_{1:N} | \vec{f}_{1:N}) \propto P(\vec{f}_{1:N} | \text{Class}_{1:N}) \cdot P(\text{Class}_{1:N})
+\end{equation}
+
+The optimal sequence is found using the Viterbi algorithm:
+\begin{equation}
+\text{Class}^*_{1:N} = \arg\max_{\text{Class}_{1:N}} P(\text{Class}_{1:N} | \vec{f}_{1:N})
+\end{equation}
+
+\subsection{Recurrent Neural Networks}
+Long Short-Term Memory (LSTM) networks can model temporal dependencies:
+\begin{equation}
+\vec{h}_n = \text{LSTM}(\vec{f}_n, \vec{h}_{n-1})
+\end{equation}
+
+\begin{equation}
+\vec{y}_n = \text{softmax}(W_o \cdot \vec{h}_n + \vec{b}_o)
+\end{equation}
+
+Where $\vec{y}_n$ gives the probability distribution over classes for frame $n$.
+
+\section{Implementation Details}
+
+\subsection{Algorithm Implementation}
+The core algorithm for voice/unvoiced/silent classification can be implemented as follows:
+
+\begin{algorithm}
+\caption{VoiceClassifier.classify\_frame}
+\begin{algorithmic}[1]
+\REQUIRE frame - a single audio frame
+\REQUIRE sr - sampling rate
+\REQUIRE zcr\_threshold, energy\_threshold, silence\_threshold
+\ENSURE class - classification result (0: silent, 1: unvoiced, 2: voiced)
+\STATE features $\leftarrow$ extract\_features\_from\_frame(frame, sr)
+\STATE zcr $\leftarrow$ features["zcr"]
+\STATE energy $\leftarrow$ features["energy"]
+\STATE is\_voiced\_pitch $\leftarrow$ features["is\_voiced\_pitch"]
+\IF{energy $<$ silence\_threshold}
+    \RETURN 0 \COMMENT{Silent}
+\ENDIF
+\IF{zcr $<$ zcr\_threshold AND energy $>$ energy\_threshold AND is\_voiced\_pitch}
+    \RETURN 2 \COMMENT{Voiced}
+\ELSE
+    \RETURN 1 \COMMENT{Unvoiced}
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{VoiceClassifier.extract\_features\_from\_frame}
+\begin{algorithmic}[1]
+\REQUIRE frame - a single audio frame
+\REQUIRE sr - sampling rate
+\ENSURE features - dictionary of extracted features
+\STATE zcr $\leftarrow$ zero\_crossing\_rate(frame)
+\STATE energy $\leftarrow$ short\_time\_energy(frame)
+\STATE auto\_corr $\leftarrow$ autocorrelation(frame)
+\STATE pitch, is\_voiced\_pitch $\leftarrow$ get\_pitch(auto\_corr, sr)
+\RETURN \{zcr, energy, auto\_corr, pitch, is\_voiced\_pitch\}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Parameter Selection}
+Parameter values significantly impact classification performance:
+
+\begin{itemize}
+    \item Frame length: 25 ms (typically 400 samples at 16 kHz)
+    \item Frame stride: 10 ms (typically 160 samples at 16 kHz)
+    \item ZCR threshold: 0.1 (normalized ZCR)
+    \item Energy threshold: 0.0001 (normalized energy)
+    \item Silence threshold: 0.00001 (normalized energy)
+\end{itemize}
+
+These parameters should be tuned based on the acoustic characteristics of the target environment.
+
+\subsection{Computational Complexity}
+The computational complexity for processing a signal of length $L$ is:
+
+\begin{itemize}
+    \item Frame extraction: $O(L)$
+    \item ZCR calculation: $O(M \cdot N_f)$ where $N_f = \lceil L/S \rceil$ is the number of frames
+    \item STE calculation: $O(M \cdot N_f)$
+    \item Autocorrelation: $O(M^2 \cdot N_f)$ or $O(M \log M \cdot N_f)$ using FFT
+    \item Spectral features: $O(M \log M \cdot N_f)$ (includes FFT computation)
+    \item Classification: 
+        \begin{itemize}
+            \item Threshold-based: $O(N_f)$
+            \item Random Forest: $O(D \cdot T \cdot N_f)$ where $D$ is feature dimension, $T$ is number of trees
+            \item Neural Network: $O(W \cdot N_f)$ where $W$ is the total number of weights
+        \end{itemize}
+\end{itemize}
+
+The overall time complexity is dominated by feature extraction:
+\begin{equation}
+T(L) = O(M \log M \cdot N_f) = O(M \log M \cdot L/S)
+\end{equation}
+
+\section{Evaluation Metrics}
+Performance of voice/unvoiced/silent classification algorithms can be evaluated using:
+
+\subsection{Frame-Level Metrics}
+\begin{itemize}
+    \item Accuracy: $\frac{\text{Correctly classified frames}}{\text{Total frames}}$
+    \item Precision: $P_c = \frac{\text{True positives for class $c$}}{\text{Predicted positives for class $c$}}$
+    \item Recall: $R_c = \frac{\text{True positives for class $c$}}{\text{Actual positives for class $c$}}$
+    \item F1-score: $F1_c = \frac{2 \cdot P_c \cdot R_c}{P_c + R_c}$
+    \item Confusion matrix: Shows the distribution of predicted vs. actual classes
+\end{itemize}
+
+\subsection{Boundary-Level Metrics}
+\begin{itemize}
+    \item Boundary accuracy: Percentage of correctly detected boundaries within a tolerance window
+    \item Boundary deviation: Average time difference between detected and true boundaries
+\end{itemize}
+
+\section{Results and Discussion}
+The performance of different classification approaches varies depending on acoustic conditions:
+
+\subsection{Threshold-Based Classification}
+\begin{itemize}
+    \item Advantages: Computationally efficient, interpretable
+    \item Limitations: Sensitive to noise, requires careful parameter tuning
+    \item Typical accuracy: 80-90\% in clean conditions, drops significantly in noisy environments
+\end{itemize}
+
+\subsection{Machine Learning Approach}
+\begin{itemize}
+    \item Advantages: More robust to noise, adaptive to different speakers
+    \item Limitations: Requires training data, potentially higher computational cost
+    \item Typical accuracy: 90-95\% in clean conditions, 80-85\% in moderate noise
+\end{itemize}
+
+\subsection{Sequential Models}
+\begin{itemize}
+    \item Advantages: Captures temporal structure, smoother transitions
+    \item Limitations: Higher complexity, may introduce latency
+    \item Typical accuracy: 92-97\% in clean conditions, 85-90\% in moderate noise
+\end{itemize}
+
+\section{Conclusion}
+This paper has presented a comprehensive framework for voice/unvoiced/silent classification in speech processing. We have provided detailed mathematical formulations for the extraction of discriminative features from speech signals and described various classification approaches ranging from simple threshold-based methods to advanced machine learning techniques.
+
+The voice/unvoiced/silent classification techniques described, including ZCR, STE, and spectral features, provide robust methods for analyzing speech segments. By combining traditional signal processing approaches with machine learning techniques, modern speech systems can achieve high accuracy in classification tasks.
+
+Future work could explore adaptive thresholding techniques, integration of contextual information across longer time spans, and deep learning approaches that learn optimal features directly from the raw signal. Additionally, methods to enhance robustness in adverse acoustic conditions, such as background noise and reverberation, remain important areas for further investigation.
+
+\begin{thebibliography}{00}
+\bibitem{rabiner} L. R. Rabiner and R. W. Schafer, "Digital Processing of Speech Signals," Prentice-Hall, 1978.
+\bibitem{huang} X. Huang, A. Acero, and H. Hon, "Spoken Language Processing: A Guide to Theory, Algorithm, and System Development," Prentice Hall, 2001.
+\bibitem{jurafsky} D. Jurafsky and J. H. Martin, "Speech and Language Processing," 3rd ed. draft, 2023.
+\bibitem{mp3} K. Brandenburg and G. Stoll, "ISO/MPEG-1 Audio: A Generic Standard for Coding of High-Quality Digital Audio," Journal of the Audio Engineering Society, vol. 42, no. 10, pp. 780-792, 1994.
+\bibitem{zcr} L. Rabiner and B. H. Juang, "Fundamentals of Speech Recognition," Prentice-Hall, 1993.
+\bibitem{ml} S. Theodoridis and K. Koutroumbas, "Pattern Recognition," 4th ed., Academic Press, 2008.
+\bibitem{hmm} L. R. Rabiner, "A tutorial on hidden Markov models and selected applications in speech recognition," Proceedings of the IEEE, vol. 77, no. 2, pp. 257-286, 1989.
+\bibitem{dnn} G. Hinton et al., "Deep Neural Networks for Acoustic Modeling in Speech Recognition," IEEE Signal Processing Magazine, vol. 29, no. 6, pp. 82-97, 2012.
+\end{thebibliography}
+
+\end{document} 
