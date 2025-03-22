@@ -89,13 +89,58 @@ class AudioFileHandler:
         # Visualize results
         plot_path = visualizer.plot_features(signal, sr, frames, labels, classifier)
         
+        # Plot ZCR vs classification comparison
+        zcr_plot_path = visualizer.plot_zcr_classification_comparison(frames, labels, classifier)
+        
         # Save classified segments
         voice_path, unvoice_path, silent_path = self.save_classified_segments(signal, frames, labels, sr)
+        
+        # Visualize pitch detection for some example frames
+        print("Generating pitch detection visualizations for example frames...")
+        
+        # Find indices of voiced and unvoiced frames for examples
+        voiced_indices = np.where(labels == 2)[0]
+        unvoiced_indices = np.where(labels == 1)[0]
+        
+        # Select a few example frames (if available)
+        example_indices = []
+        
+        # Add some voiced examples
+        if len(voiced_indices) > 0:
+            # Take examples from beginning, middle, and end if possible
+            if len(voiced_indices) >= 3:
+                example_indices.append(voiced_indices[0])  # Beginning
+                example_indices.append(voiced_indices[len(voiced_indices)//2])  # Middle
+                example_indices.append(voiced_indices[-1])  # End
+            else:
+                example_indices.extend(voiced_indices)  # All available
+                
+        # Add some unvoiced examples
+        if len(unvoiced_indices) > 0:
+            # Take examples from beginning and end if possible
+            if len(unvoiced_indices) >= 2:
+                example_indices.append(unvoiced_indices[0])  # Beginning
+                example_indices.append(unvoiced_indices[-1])  # End
+            else:
+                example_indices.extend(unvoiced_indices)  # All available
+        
+        # Limit to maximum of 5 examples
+        example_indices = example_indices[:5]
+        
+        # Create pitch detection visualizations for selected examples
+        for idx in example_indices:
+            if idx < len(frames):
+                # Get the frame
+                frame = frames[idx]
+                # Create pitch detection visualization using the visualizer
+                visualizer.plot_pitch_detection(frame, sr, classifier, frame_index=idx)
+                print(f"  Created pitch detection visualization for frame {idx} (class: {labels[idx]})")
         
         print(f"Processed {file_path}")
         print(f"Sample rate: {sr} Hz")
         print(f"Duration: {len(signal)/sr:.2f} seconds")
         print(f"Results saved to '{plot_path}'")
+        print(f"ZCR vs Classification plot saved to '{zcr_plot_path}'")
         
         # Print statistics about classification
         total_frames = len(labels)

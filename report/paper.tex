@@ -13,11 +13,11 @@
 
 \title{Voice/Unvoiced/Silent Classification in Speech Processing: Algorithms and Implementation}
 
-\author{\IEEEauthorblockN{Author(s)}
-\IEEEauthorblockA{Department of Computer Science\\
-University Name\\
-City, State, Country\\
-email@institution.edu}}
+% \author{\IEEEauthorblockN{Author(s)}
+% \IEEEauthorblockA{Department of Computer Science\\
+% University Name\\
+% City, State, Country\\
+% email@institution.edu}}
 
 \maketitle
 
@@ -119,17 +119,17 @@ STE measures the energy or intensity of the signal in a frame:
 Voiced segments typically have higher energy compared to unvoiced segments, while silent segments have minimal energy.
 
 \subsubsection{Autocorrelation coefficient}
-For pitch detection and periodicity analysis:
+For pitch detection and periodicity analysis, the autocorrelation of a frame at lag $k$ is defined as:
 \begin{equation}
-R_n[k] = \sum_{m=0}^{M-k-1} x_n[m] \cdot x_n[m+k]
+R_n[k] = \sum_{m=k}^{M-1} x_n[m] \cdot x_n[m-k], \quad k = 0, 1, \dots, M-1
 \end{equation}
 
 The normalized autocorrelation is:
 \begin{equation}
-\hat{R}_n[k] = \frac{R_n[k]}{R_n[0]}
+\hat{R}_n[k] = \frac{R_n[k]}{R_n[0]} = \frac{\sum_{m=k}^{M-1} x_n[m] \cdot x_n[m-k]}{\sum_{m=0}^{M-1} x_n[m]^2}, \quad k = 0, 1, \dots, M-1
 \end{equation}
 
-A high peak in $\hat{R}_n[k]$ for $k > 0$ indicates periodicity, a characteristic of voiced sounds.
+A high peak in $\hat{R}_n[k]$ for $k > 0$ indicates periodicity, a characteristic of voiced sounds. The lag $k$ at which this peak occurs corresponds to the fundamental period of the speech signal, enabling pitch estimation.
 
 \subsection{Frequency-Domain Features}
 
@@ -244,23 +244,43 @@ Where $\vec{y}_n$ gives the probability distribution over classes for frame $n$.
 \section{Implementation Details}
 
 \subsection{Algorithm Implementation}
-The core algorithm for voice/unvoiced/silent classification can be implemented as follows:
+The core algorithm for voice/unvoiced/silent classification is implemented in our Python codebase as follows:
+
+\begin{algorithm}
+\caption{VoiceClassifier.extract\_frames}
+\begin{algorithmic}[1]
+\REQUIRE signal - audio signal
+\REQUIRE sr - sampling rate
+\REQUIRE frame\_length - frame length in ms
+\REQUIRE frame\_stride - frame stride in ms
+\ENSURE frames - array of extracted frames
+\STATE frame\_length\_samples $\leftarrow$ int(sr $\cdot$ frame\_length / 1000)
+\STATE frame\_stride\_samples $\leftarrow$ int(sr $\cdot$ frame\_stride / 1000)
+\STATE hamming\_window $\leftarrow$ 0.54 - 0.46 $\cdot$ cos(2$\pi$ $\cdot$ arange(frame\_length\_samples) / (frame\_length\_samples - 1))
+\STATE signal\_length $\leftarrow$ len(signal)
+\STATE frame\_count $\leftarrow$ int(ceil((signal\_length - frame\_length\_samples) / frame\_stride\_samples)) + 1
+\STATE frames $\leftarrow$ zeros((frame\_count, frame\_length\_samples))
+\FOR{i = 0 to frame\_count - 1}
+    \STATE start $\leftarrow$ i $\cdot$ frame\_stride\_samples
+    \STATE end $\leftarrow$ min(start + frame\_length\_samples, signal\_length)
+    \STATE frame $\leftarrow$ zeros(frame\_length\_samples)
+    \STATE frame[0:end-start] $\leftarrow$ signal[start:end]
+    \STATE frames[i] $\leftarrow$ frame $\cdot$ hamming\_window
+\ENDFOR
+\RETURN frames
+\end{algorithmic}
+\end{algorithm}
 
 \begin{algorithm}
 \caption{VoiceClassifier.classify\_frame}
 \begin{algorithmic}[1]
-\REQUIRE frame - a single audio frame
-\REQUIRE sr - sampling rate
+\REQUIRE features - dictionary of extracted features
 \REQUIRE zcr\_threshold, energy\_threshold, silence\_threshold
 \ENSURE class - classification result (0: silent, 1: unvoiced, 2: voiced)
-\STATE features $\leftarrow$ extract\_features\_from\_frame(frame, sr)
-\STATE zcr $\leftarrow$ features["zcr"]
-\STATE energy $\leftarrow$ features["energy"]
-\STATE is\_voiced\_pitch $\leftarrow$ features["is\_voiced\_pitch"]
-\IF{energy $<$ silence\_threshold}
+\IF{features["energy"] $<$ silence\_threshold}
     \RETURN 0 \COMMENT{Silent}
 \ENDIF
-\IF{zcr $<$ zcr\_threshold AND energy $>$ energy\_threshold AND is\_voiced\_pitch}
+\IF{features["zcr"] $<$ zcr\_threshold AND features["energy"] $>$ energy\_threshold AND features["is\_voiced\_pitch"]}
     \RETURN 2 \COMMENT{Voiced}
 \ELSE
     \RETURN 1 \COMMENT{Unvoiced}
@@ -282,18 +302,77 @@ The core algorithm for voice/unvoiced/silent classification can be implemented a
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Parameter Selection}
-Parameter values significantly impact classification performance:
+\begin{algorithm}
+\caption{VoiceClassifier.get\_pitch}
+\begin{algorithmic}[1]
+\REQUIRE autocorr - autocorrelation of frame
+\REQUIRE sr - sampling rate
+\REQUIRE frame\_length - frame length in ms
+\ENSURE pitch - estimated pitch in Hz
+\ENSURE is\_voiced - boolean indicating if frame is voiced
+\STATE frame\_length\_samples $\leftarrow$ int(sr $\cdot$ frame\_length / 1000)
+\STATE min\_pitch $\leftarrow$ 50 \COMMENT{Hz}
+\STATE max\_pitch $\leftarrow$ 500 \COMMENT{Hz}
+\STATE min\_lag $\leftarrow$ int(sr / max\_pitch)
+\STATE max\_lag $\leftarrow$ int(sr / min\_pitch)
+\IF{max\_lag $\geq$ len(autocorr)}
+    \STATE max\_lag $\leftarrow$ len(autocorr) - 1
+\ENDIF
+\STATE peak\_idx $\leftarrow$ argmax(autocorr[min\_lag:max\_lag]) + min\_lag
+\STATE peak\_value $\leftarrow$ autocorr[peak\_idx]
+\STATE is\_voiced $\leftarrow$ peak\_value $>$ 0.3
+\IF{is\_voiced}
+    \STATE pitch $\leftarrow$ sr / peak\_idx
+\ELSE
+    \STATE pitch $\leftarrow$ 0
+\ENDIF
+\RETURN pitch, is\_voiced
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{VoiceClassifier.process}
+\begin{algorithmic}[1]
+\REQUIRE signal - audio signal
+\REQUIRE sr - sampling rate
+\ENSURE frames - extracted frames
+\ENSURE features - extracted features
+\ENSURE labels - classification labels
+\STATE frames $\leftarrow$ extract\_frames(signal, sr)
+\STATE features, labels $\leftarrow$ extract\_features(frames, sr)
+\RETURN frames, features, labels
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Implementation Notes}
+Our implementation follows the theoretical approach described earlier with the following characteristics:
 
 \begin{itemize}
-    \item Frame length: 25 ms (typically 400 samples at 16 kHz)
-    \item Frame stride: 10 ms (typically 160 samples at 16 kHz)
+    \item \textbf{Hamming Window}: As described in the theoretical section, our implementation applies a Hamming window to each frame using the formula:
+    \begin{equation}
+    w[m] = 0.54 - 0.46 \cos\left(\frac{2\pi m}{M-1}\right), \quad 0 \leq m < M
+    \end{equation}
+    This reduces spectral leakage and improves frequency domain analysis.
+    
+    \item \textbf{Pitch-Based Voicing Decision}: We incorporate pitch information from autocorrelation analysis as an additional criterion for voiced/unvoiced decision, with a peak threshold of 0.3 for determining if a frame contains voiced speech.
+    
+    \item \textbf{Three-Way Classification}: The classifier explicitly outputs three distinct classes (0 for silent, 1 for unvoiced, 2 for voiced) rather than binary decisions.
+\end{itemize}
+
+\subsection{Parameter Selection}
+Parameter values in our implementation are set as follows:
+
+\begin{itemize}
+    \item Frame length: 25 ms
+    \item Frame stride: 10 ms
     \item ZCR threshold: 0.1 (normalized ZCR)
     \item Energy threshold: 0.0001 (normalized energy)
     \item Silence threshold: 0.00001 (normalized energy)
+    \item Pitch detection range: 50-500 Hz
+    \item Autocorrelation peak threshold: 0.3
 \end{itemize}
 
-These parameters should be tuned based on the acoustic characteristics of the target environment.
+These parameters were selected based on empirical testing and are consistent with common values used in speech processing literature, though they may need tuning for specific acoustic environments or applications.
 
 \subsection{Computational Complexity}
 The computational complexity for processing a signal of length $L$ is:

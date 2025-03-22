@@ -1,13 +1,18 @@
 import numpy as np
+import os
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 class VoiceClassifier:
     """Core class for voice/unvoiced classification algorithm"""
     
-    def __init__(self, zcr_threshold=0.1, energy_threshold=0.0001, silence_threshold=0.00001):
+    def __init__(self, zcr_threshold=0.1, energy_threshold=0.0001, silence_threshold=0.00001, debug=False, visualizer=None):
         """Initialize the classifier with thresholds."""
         self.zcr_threshold = zcr_threshold
         self.energy_threshold = energy_threshold
         self.silence_threshold = silence_threshold
+        self.debug = debug
+        self.visualizer = visualizer
     
     def extract_frames(self, signal, sr, frame_length=25, frame_stride=10):
         """Extract frames from audio signal.
@@ -24,6 +29,9 @@ class VoiceClassifier:
         frame_length = int(sr * frame_length / 1000)
         frame_stride = int(sr * frame_stride / 1000)
         
+        # Create a Hamming window
+        hamming_window = 0.54 - 0.46 * np.cos(2 * np.pi * np.arange(frame_length) / (frame_length - 1))
+        
         signal_length = len(signal)
         frame_count = int(np.ceil((signal_length - frame_length) / frame_stride)) + 1
         
@@ -32,13 +40,18 @@ class VoiceClassifier:
         for i in range(frame_count):
             start = i * frame_stride
             end = min(start + frame_length, signal_length)
-            frames[i, :end-start] = signal[start:end]
+            
+            # Apply the window to the frame
+            frame = np.zeros(frame_length)
+            frame[:end-start] = signal[start:end]
+            frames[i] = frame * hamming_window
             
         return frames
     
     def zero_crossing_rate(self, frame):
         """Calculate zero crossing rate of a frame."""
-        return np.sum(np.abs(np.diff(np.sign(frame)))) / (2 * len(frame))
+        zcr = np.sum(np.abs(np.diff(np.sign(frame)))) / (2 * len(frame))
+        return zcr
     
     def short_time_energy(self, frame):
         """Calculate short-time energy of a frame."""
@@ -50,14 +63,13 @@ class VoiceClassifier:
         corr = corr[len(corr)//2:]
         return corr / np.max(corr)
     
-    def get_pitch(self, autocorr, sr, frame_length=25):
+    def get_pitch(self, autocorr, sr):
         """Estimate pitch from autocorrelation.
         
         Returns:
             pitch: Estimated pitch in Hz
             is_voiced: Boolean indicating if frame is voiced
         """
-        frame_length_samples = int(sr * frame_length / 1000)
         
         # Minimum and maximum pitch values in Hz
         min_pitch = 50  # Hz
@@ -118,6 +130,7 @@ class VoiceClassifier:
             return 0  # Silent
         
         # Decision based on multiple features
+        
         if features["zcr"] < self.zcr_threshold and features["energy"] > self.energy_threshold and features["is_voiced_pitch"]:
             return 2  # Voiced
         else:
@@ -133,7 +146,12 @@ class VoiceClassifier:
         pitches = np.zeros(n_frames)
         labels = np.zeros(n_frames)
         
-        for i, frame in enumerate(frames):
+        if self.debug:
+            os.makedirs('./output/zcr', exist_ok=True)
+            os.makedirs('./output/energy', exist_ok=True)
+            os.makedirs('./output/pitch', exist_ok=True)
+            
+        for i, frame in tqdm(enumerate(frames), total=n_frames, desc="Processing frames"):
             # Use the new extract_features_from_frame function
             features = self.extract_features_from_frame(frame, sr)
             
@@ -144,7 +162,11 @@ class VoiceClassifier:
             
             # Classify the frame using the extracted features
             labels[i] = self.classify_frame(features)
-        
+
+            # Debug visualization if enabled and visualizer is provided
+            if self.debug and self.visualizer:
+                self.visualizer.plot_frame_features(frame, features, i)
+            
         # Combine features
         features = np.column_stack((zcrs, energies, pitches))
         

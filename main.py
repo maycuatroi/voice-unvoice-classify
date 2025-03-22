@@ -28,7 +28,8 @@ def main():
         else:
             print(f"Error: File {args.file} not found")
     else:
-        word = input("Enter a word to download and analyze: ") or "Hello Today is a good day take a deep breath"
+        # word = input("Enter a word to download and analyze: ") or "Hello Today is a good day take a deep breath"
+        word = "Hello Today is a good day take a deep breath"
         voice_downloader = VoiceDownloader()
         file_name = voice_downloader.download_voice(word)
         assert file_name is not None, f"Failed to download {word}"
