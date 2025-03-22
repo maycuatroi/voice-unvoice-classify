@@ -1,0 +1,6 @@
+numpy
+scipy
+matplotlib
+librosa
+scikit-learn
+gTTS>=2.2.3
