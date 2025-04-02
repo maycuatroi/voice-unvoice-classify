@@ -1,3 +1,6 @@
+// Import the ScriptProcessorHandler
+import { ScriptProcessorHandler } from './script-processor.js';
+
 document.addEventListener('DOMContentLoaded', function() {
     // DOM Elements
     const startButton = document.getElementById('startButton');
@@ -25,18 +28,49 @@ document.addEventListener('DOMContentLoaded', function() {
     const currentEnergyElement = document.getElementById('currentEnergy');
     const currentClassificationElement = document.getElementById('currentClassification');
     
-    // Update displayed values when sliders change
+    // Update displayed values and audio processor when sliders change
     zcrThresholdInput.addEventListener('input', () => {
-        zcrThresholdValue.textContent = zcrThresholdInput.value;
+        const value = parseInt(zcrThresholdInput.value);
+        zcrThresholdValue.textContent = value;
+        updateProcessorParameters();
     });
     
     energyThresholdInput.addEventListener('input', () => {
-        energyThresholdValue.textContent = parseFloat(energyThresholdInput.value).toFixed(3);
+        const value = parseFloat(energyThresholdInput.value);
+        energyThresholdValue.textContent = value.toFixed(3);
+        updateProcessorParameters();
     });
     
     historyLengthInput.addEventListener('input', () => {
         historyLengthValue.textContent = historyLengthInput.value;
     });
+    
+    // Function to update parameters in the active processor
+    function updateProcessorParameters() {
+        const zcrThreshold = parseInt(zcrThresholdInput.value);
+        const energyThreshold = parseFloat(energyThresholdInput.value);
+        
+        // Only update if we have an active processor
+        if (!audioContext) return;
+        
+        // Update AudioWorklet parameters if it's active
+        if (processorNode instanceof AudioWorkletNode) {
+            processorNode.port.postMessage({
+                type: 'updateParameters',
+                data: {
+                    zcrThreshold: zcrThreshold,
+                    energyThreshold: energyThreshold
+                }
+            });
+        } 
+        // Update ScriptProcessorHandler parameters if it's active
+        else if (scriptProcessorHandler) {
+            scriptProcessorHandler.updateParameters({
+                zcrThreshold: zcrThreshold,
+                energyThreshold: energyThreshold
+            });
+        }
+    }
     
     // Drawing context for canvases
     const waveformCtx = waveformCanvas.getContext('2d');
@@ -61,6 +95,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let microphone;
     let processorNode;
     let stream;
+    let scriptProcessorHandler; // Reference to the ScriptProcessorHandler
     
     // Visualization control
     let isPaused = false;
@@ -125,6 +160,33 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 100);
     }
     
+    // Function to handle feature updates from either processor type
+    function handleFeatures(features) {
+        const { waveformData, zcr, energy, classification } = features;
+        
+        // Add to histories
+        waveformHistory.push(waveformData);
+        zcrHistory.push(zcr);
+        energyHistory.push(energy);
+        classificationHistory.push(classification);
+        
+        // Update current values
+        currentZcr = zcr;
+        currentEnergy = energy;
+        currentClassification = classification;
+        
+        // Limit history length
+        const historyLength = parseFloat(historyLengthInput.value);
+        const maxHistoryFrames = Math.ceil(historyLength * audioContext.sampleRate / waveformData.length);
+        
+        if (waveformHistory.length > maxHistoryFrames) {
+            waveformHistory.shift();
+            zcrHistory.shift();
+            energyHistory.shift();
+            classificationHistory.shift();
+        }
+    }
+    
     // Start real-time analysis
     startButton.addEventListener('click', async () => {
         try {
@@ -148,6 +210,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Get buffer size
             const bufferSize = parseInt(bufferSizeSelect.value);
+            const zcrThreshold = parseInt(zcrThresholdInput.value);
+            const energyThreshold = parseFloat(energyThresholdInput.value);
             
             statusElement.textContent = 'Initializing audio processing...';
             
@@ -157,41 +221,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Load and register the processor worklet
                     await audioContext.audioWorklet.addModule('speech-processor.js');
                     
-                    // Create the worklet node
+                    // Create the worklet node with initial parameters
                     processorNode = new AudioWorkletNode(audioContext, 'speech-processor', {
                         processorOptions: {
-                            bufferSize: bufferSize
+                            bufferSize: bufferSize,
+                            zcrThreshold: zcrThreshold,
+                            energyThreshold: energyThreshold
                         }
                     });
                     
                     // Set up event handling from the worklet
                     processorNode.port.onmessage = (event) => {
                         if (event.data.type === 'features') {
-                            const { waveformData, zcr, energy, classification } = event.data;
-                            
-                            // Add to histories
-                            waveformHistory.push(waveformData);
-                            zcrHistory.push(zcr);
-                            energyHistory.push(energy);
-                            classificationHistory.push(classification);
-                            
-                            // Update current values
-                            currentZcr = zcr;
-                            currentEnergy = energy;
-                            currentClassification = classification;
-                            
-                            // Limit history length
-                            const historyLength = parseFloat(historyLengthInput.value);
-                            const maxHistoryFrames = Math.ceil(historyLength * audioContext.sampleRate / bufferSize);
-                            
-                            if (waveformHistory.length > maxHistoryFrames) {
-                                waveformHistory.shift();
-                                zcrHistory.shift();
-                                energyHistory.shift();
-                                classificationHistory.shift();
-                            }
+                            handleFeatures(event.data);
+                        } else if (event.data.type === 'parameterUpdate') {
+                            console.log('Parameter update confirmed:', event.data.data);
                         }
                     };
+                    
+                    console.log('Using AudioWorkletNode for processing');
                 } catch (workletError) {
                     console.warn('AudioWorklet not fully supported, falling back to ScriptProcessor', workletError);
                     // Fall back to ScriptProcessorNode
@@ -239,26 +287,40 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Helper function to create ScriptProcessorNode as fallback
     function useScriptProcessor() {
-        // Get buffer size
+        // Get parameter values
         const bufferSize = parseInt(bufferSizeSelect.value);
+        const zcrThreshold = parseFloat(zcrThresholdInput.value);
+        const energyThreshold = parseFloat(energyThresholdInput.value);
         
-        // Create script processor node
-        processorNode = audioContext.createScriptProcessor(
-            bufferSize,
-            1,
-            1
-        );
+        // Create ScriptProcessorHandler instance
+        scriptProcessorHandler = new ScriptProcessorHandler(audioContext, {
+            bufferSize: bufferSize,
+            zcrThreshold: zcrThreshold,
+            energyThreshold: energyThreshold,
+            onFeaturesCalculated: handleFeatures,
+            onError: (error) => {
+                console.error('ScriptProcessor error:', error);
+                statusElement.textContent = 'Error processing audio: ' + error.message;
+            }
+        });
         
-        // Process audio data
-        processorNode.onaudioprocess = processAudio;
+        // Initialize and get the processor node
+        processorNode = scriptProcessorHandler.initialize();
+        
+        console.log('Using ScriptProcessorNode for processing');
     }
     
     // Stop analysis
     stopButton.addEventListener('click', () => {
-        if (processorNode) {
+        // Clean up ScriptProcessorHandler if it exists
+        if (scriptProcessorHandler) {
+            scriptProcessorHandler.dispose();
+            scriptProcessorHandler = null;
+        } else if (processorNode) {
             processorNode.disconnect();
-            processorNode = null;
         }
+        
+        processorNode = null;
         
         if (microphone) {
             microphone.disconnect();
@@ -288,90 +350,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Keep export button enabled if there's data to export
         exportButton.disabled = zcrHistory.length === 0;
     });
-    
-    // Process audio data
-    function processAudio(event) {
-        const inputData = event.inputBuffer.getChannelData(0);
-        
-        // Clone the input data for waveform display
-        const waveformData = new Float32Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-            waveformData[i] = inputData[i];
-        }
-        
-        // Add to waveform history
-        waveformHistory.push(waveformData);
-        
-        // Calculate Zero-Crossing Rate
-        let zcr = calculateZCR(inputData);
-        zcrHistory.push(zcr);
-        currentZcr = zcr;
-        
-        // Calculate Energy
-        let energy = calculateEnergy(inputData);
-        energyHistory.push(energy);
-        currentEnergy = energy;
-        
-        // Classify voiced/unvoiced
-        let classification = classifyFrame(zcr, energy);
-        classificationHistory.push(classification);
-        currentClassification = classification;
-        
-        // Limit history length
-        const historyLength = parseFloat(historyLengthInput.value);
-        const maxHistoryFrames = Math.ceil(historyLength * audioContext.sampleRate / inputData.length);
-        
-        if (waveformHistory.length > maxHistoryFrames) {
-            waveformHistory.shift();
-            zcrHistory.shift();
-            energyHistory.shift();
-            classificationHistory.shift();
-        }
-    }
-    
-    // Calculate Zero-Crossing Rate
-    function calculateZCR(buffer) {
-        let crossings = 0;
-        
-        for (let i = 1; i < buffer.length; i++) {
-            if ((buffer[i] >= 0 && buffer[i - 1] < 0) || 
-                (buffer[i] < 0 && buffer[i - 1] >= 0)) {
-                crossings++;
-            }
-        }
-        
-        // Normalize to crossings per second
-        return (crossings * audioContext.sampleRate) / buffer.length;
-    }
-    
-    // Calculate Energy
-    function calculateEnergy(buffer) {
-        let sum = 0;
-        
-        for (let i = 0; i < buffer.length; i++) {
-            sum += buffer[i] * buffer[i];
-        }
-        
-        return sum / buffer.length;
-    }
-    
-    // Classify frame
-    function classifyFrame(zcr, energy) {
-        const zcrThreshold = parseFloat(zcrThresholdInput.value);
-        const energyThreshold = parseFloat(energyThresholdInput.value);
-        
-        // First check if it's silence based on energy
-        if (energy < energyThreshold / 5) {
-            return 0; // Silence
-        }
-        
-        // Explicitly check for unvoiced sounds (high ZCR and lower energy)
-        if (zcr > zcrThreshold * 1.2 && energy < energyThreshold * 2) {
-            return -1; // Unvoiced
-        } else {
-            return 1; // Everything else is considered voiced
-        }
-    }
     
     // Update visualization
     function updateVisualization() {

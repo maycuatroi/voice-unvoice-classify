@@ -9,12 +9,41 @@ class SpeechProcessor extends AudioWorkletProcessor {
         const processorOptions = options.processorOptions || {};
         this.bufferSize = processorOptions.bufferSize || 1024;
         
+        // Default threshold values
+        this.zcrThreshold = processorOptions.zcrThreshold || 35;
+        this.energyThreshold = processorOptions.energyThreshold || 0.002;
+        
         // Buffer to accumulate samples
         this.sampleBuffer = new Float32Array(this.bufferSize);
         this.bufferFill = 0;
         
         // Initialize sampleRate (will be set when process() is called)
         this.sampleRate = 0;
+        
+        // Set up message port for parameter updates
+        this.port.onmessage = (event) => {
+            const { type, data } = event.data;
+            
+            if (type === 'updateParameters') {
+                // Update parameters when received from main thread
+                if (data.zcrThreshold !== undefined) {
+                    this.zcrThreshold = data.zcrThreshold;
+                }
+                if (data.energyThreshold !== undefined) {
+                    this.energyThreshold = data.energyThreshold;
+                }
+                
+                // Send confirmation back to main thread
+                this.port.postMessage({
+                    type: 'parameterUpdate',
+                    status: 'success',
+                    data: {
+                        zcrThreshold: this.zcrThreshold,
+                        energyThreshold: this.energyThreshold
+                    }
+                });
+            }
+        };
     }
     
     process(inputs, outputs, parameters) {
@@ -88,20 +117,16 @@ class SpeechProcessor extends AudioWorkletProcessor {
     }
     
     // Classify frame as voiced/unvoiced/silence
-    // Note: In a real implementation, you would need to pass the thresholds
-    // from the main thread to the worklet or use reasonable defaults
     classifyFrame(zcr, energy) {
-        // Default thresholds (in production, these should be configurable)
-        const zcrThreshold = 35;
-        const energyThreshold = 0.002;
+        // Use the current threshold values (which may have been updated from main thread)
         
         // First check if it's silence based on energy
-        if (energy < energyThreshold / 5) {
+        if (energy < this.energyThreshold / 5) {
             return 0; // Silence
         }
         
         // Explicitly check for unvoiced sounds (high ZCR and lower energy)
-        if (zcr > zcrThreshold * 1.2 && energy < energyThreshold * 2) {
+        if (zcr > this.zcrThreshold * 1.2 && energy < this.energyThreshold * 2) {
             return -1; // Unvoiced
         } else {
             return 1; // Everything else is considered voiced
