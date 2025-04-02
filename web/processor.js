@@ -1,9 +1,11 @@
-
 document.addEventListener('DOMContentLoaded', function() {
     // DOM Elements
     const startButton = document.getElementById('startButton');
     const stopButton = document.getElementById('stopButton');
+    const pauseButton = document.getElementById('pauseButton');
+    const exportButton = document.getElementById('exportButton');
     const statusElement = document.getElementById('status');
+    const loadingElement = document.getElementById('loading');
     const waveformCanvas = document.getElementById('waveformCanvas');
     const zcrCanvas = document.getElementById('zcrCanvas');
     const energyCanvas = document.getElementById('energyCanvas');
@@ -60,6 +62,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let processorNode;
     let stream;
     
+    // Visualization control
+    let isPaused = false;
+    
     // Data history
     let waveformHistory = [];
     let zcrHistory = [];
@@ -71,9 +76,63 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentEnergy = 0;
     let currentClassification = 0; // 0: silence, 1: voiced, -1: unvoiced
     
+    // Toggle pause visualization
+    pauseButton.addEventListener('click', () => {
+        isPaused = !isPaused;
+        pauseButton.textContent = isPaused ? 'Resume Display' : 'Pause Display';
+        pauseButton.setAttribute('aria-label', isPaused ? 'Resume visualization' : 'Pause visualization');
+    });
+    
+    // Export data
+    exportButton.addEventListener('click', exportData);
+    
+    function exportData() {
+        // Prepare data object
+        const data = {
+            timestamp: new Date().toISOString(),
+            parameters: {
+                bufferSize: parseInt(bufferSizeSelect.value),
+                zcrThreshold: parseFloat(zcrThresholdInput.value),
+                energyThreshold: parseFloat(energyThresholdInput.value),
+                sampleRate: audioContext ? audioContext.sampleRate : 0
+            },
+            samples: []
+        };
+        
+        // Collect data for all frames
+        const frames = zcrHistory.length;
+        for (let i = 0; i < frames; i++) {
+            data.samples.push({
+                zcr: zcrHistory[i],
+                energy: energyHistory[i],
+                classification: classificationHistory[i]
+            });
+        }
+        
+        // Convert to JSON and create download link
+        const jsonData = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `speech-analysis-${new Date().toISOString().slice(0,19).replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+    }
+    
     // Start real-time analysis
     startButton.addEventListener('click', async () => {
         try {
+            // Show loading indicator
+            loadingElement.classList.add('active');
+            startButton.disabled = true;
+            statusElement.textContent = 'Requesting microphone access...';
+            
             // Initialize audio context
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
@@ -90,29 +149,78 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get buffer size
             const bufferSize = parseInt(bufferSizeSelect.value);
             
-            // Create script processor node for custom processing
-            // Note: ScriptProcessorNode is deprecated but used here for compatibility
-            // In production, AudioWorkletNode should be used instead
-            processorNode = audioContext.createScriptProcessor(
-                bufferSize,
-                1,
-                1
-            );
+            statusElement.textContent = 'Initializing audio processing...';
+            
+            // Use AudioWorkletNode if supported, otherwise fall back to ScriptProcessorNode
+            if (window.AudioWorkletNode && audioContext.audioWorklet) {
+                try {
+                    // Load and register the processor worklet
+                    await audioContext.audioWorklet.addModule('speech-processor.js');
+                    
+                    // Create the worklet node
+                    processorNode = new AudioWorkletNode(audioContext, 'speech-processor', {
+                        processorOptions: {
+                            bufferSize: bufferSize
+                        }
+                    });
+                    
+                    // Set up event handling from the worklet
+                    processorNode.port.onmessage = (event) => {
+                        if (event.data.type === 'features') {
+                            const { waveformData, zcr, energy, classification } = event.data;
+                            
+                            // Add to histories
+                            waveformHistory.push(waveformData);
+                            zcrHistory.push(zcr);
+                            energyHistory.push(energy);
+                            classificationHistory.push(classification);
+                            
+                            // Update current values
+                            currentZcr = zcr;
+                            currentEnergy = energy;
+                            currentClassification = classification;
+                            
+                            // Limit history length
+                            const historyLength = parseFloat(historyLengthInput.value);
+                            const maxHistoryFrames = Math.ceil(historyLength * audioContext.sampleRate / bufferSize);
+                            
+                            if (waveformHistory.length > maxHistoryFrames) {
+                                waveformHistory.shift();
+                                zcrHistory.shift();
+                                energyHistory.shift();
+                                classificationHistory.shift();
+                            }
+                        }
+                    };
+                } catch (workletError) {
+                    console.warn('AudioWorklet not fully supported, falling back to ScriptProcessor', workletError);
+                    // Fall back to ScriptProcessorNode
+                    useScriptProcessor();
+                }
+            } else {
+                // Fall back to ScriptProcessorNode
+                useScriptProcessor();
+            }
             
             // Connect the nodes
             microphone.connect(analyserNode);
-            analyserNode.connect(processorNode);
-            processorNode.connect(audioContext.destination);
-            
-            // Process audio data
-            processorNode.onaudioprocess = processAudio;
+            if (processorNode) {
+                analyserNode.connect(processorNode);
+                
+                // Only connect to destination for ScriptProcessorNode
+                if (processorNode instanceof ScriptProcessorNode) {
+                    processorNode.connect(audioContext.destination);
+                }
+            }
             
             // Start visualization
             requestAnimationFrame(updateVisualization);
             
-            // Update UI
-            startButton.disabled = true;
+            // Hide loading indicator and update UI
+            loadingElement.classList.remove('active');
             stopButton.disabled = false;
+            pauseButton.disabled = false;
+            exportButton.disabled = false;
             statusElement.textContent = 'Analyzing speech in real-time...';
             
             // Clear histories
@@ -122,10 +230,28 @@ document.addEventListener('DOMContentLoaded', function() {
             classificationHistory = [];
             
         } catch (error) {
+            loadingElement.classList.remove('active');
+            startButton.disabled = false;
             statusElement.textContent = 'Error: ' + error.message;
             console.error('Error accessing microphone:', error);
         }
     });
+    
+    // Helper function to create ScriptProcessorNode as fallback
+    function useScriptProcessor() {
+        // Get buffer size
+        const bufferSize = parseInt(bufferSizeSelect.value);
+        
+        // Create script processor node
+        processorNode = audioContext.createScriptProcessor(
+            bufferSize,
+            1,
+            1
+        );
+        
+        // Process audio data
+        processorNode.onaudioprocess = processAudio;
+    }
     
     // Stop analysis
     stopButton.addEventListener('click', () => {
@@ -156,7 +282,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         startButton.disabled = false;
         stopButton.disabled = true;
+        pauseButton.disabled = true;
         statusElement.textContent = 'Analysis stopped';
+        
+        // Keep export button enabled if there's data to export
+        exportButton.disabled = zcrHistory.length === 0;
     });
     
     // Process audio data
@@ -250,19 +380,22 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Draw waveform
-        drawWaveform();
+        // Only update visuals if not paused
+        if (!isPaused) {
+            // Draw waveform
+            drawWaveform();
+            
+            // Draw ZCR
+            drawZCR();
+            
+            // Draw energy
+            drawEnergy();
+            
+            // Draw classification
+            drawClassification();
+        }
         
-        // Draw ZCR
-        drawZCR();
-        
-        // Draw energy
-        drawEnergy();
-        
-        // Draw classification
-        drawClassification();
-        
-        // Update current value displays
+        // Always update current value displays even when paused
         currentZcrElement.textContent = `ZCR: ${Math.round(currentZcr)}`;
         currentEnergyElement.textContent = `Energy: ${currentEnergy.toFixed(5)}`;
         
@@ -471,4 +604,41 @@ document.addEventListener('DOMContentLoaded', function() {
             classificationCtx.fillRect(x, 0, barWidth, height);
         });
     }
+    
+    // Add dark mode CSS support
+    function setupDarkMode() {
+        const style = document.createElement('style');
+        style.textContent = `
+            body.dark-mode {
+                background-color: #1e272e;
+                color: #dfe6e9;
+            }
+            body.dark-mode h1 {
+                color: #74b9ff;
+            }
+            body.dark-mode .chart-container {
+                background-color: #2d3436;
+                border-color: #636e72;
+            }
+            body.dark-mode canvas {
+                background-color: #2d3436;
+                border-color: #636e72;
+            }
+            body.dark-mode .parameters {
+                background-color: #2d3436;
+            }
+            body.dark-mode .theme-toggle {
+                color: #dfe6e9;
+            }
+            body.dark-mode button:not(:disabled) {
+                background-color: #0984e3;
+            }
+            body.dark-mode button:hover:not(:disabled) {
+                background-color: #74b9ff;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    setupDarkMode();
 });

@@ -10,6 +10,8 @@
             max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
+            color: #333;
+            line-height: 1.6;
         }
         h1 {
             text-align: center;
@@ -34,6 +36,7 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
+            transition: background-color 0.3s;
         }
         button:hover {
             background-color: #2980b9;
@@ -41,6 +44,10 @@
         button:disabled {
             background-color: #95a5a6;
             cursor: not-allowed;
+        }
+        button:focus {
+            outline: 3px solid #3498db;
+            outline-offset: 2px;
         }
         canvas {
             width: 100%;
@@ -51,9 +58,11 @@
         .results {
             display: flex;
             gap: 20px;
+            flex-wrap: wrap;
         }
         .chart-container {
             flex: 1;
+            min-width: 300px;
             border: 1px solid #ddd;
             padding: 10px;
             border-radius: 4px;
@@ -63,27 +72,67 @@
             font-weight: bold;
             margin: 10px 0;
             color: #2c3e50;
+            min-height: 24px;
         }
         .chart-title {
             text-align: center;
             margin-bottom: 10px;
             font-weight: bold;
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        .tooltip {
+            color: #3498db;
+            margin-left: 5px;
+            cursor: help;
+            font-size: 14px;
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px;
+            background-color: #34495e;
+            color: white;
+            border-radius: 4px;
+            width: 220px;
+            z-index: 10;
+            font-weight: normal;
+            text-align: left;
+            font-size: 12px;
+            line-height: 1.4;
         }
         .parameters {
             margin-top: 20px;
-            padding: 10px;
+            padding: 15px;
             background-color: #f8f9fa;
             border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .parameters h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        .param-group {
+            margin-bottom: 10px;
         }
         label {
             display: inline-block;
             width: 200px;
+            font-weight: 500;
         }
         .legend {
             display: flex;
             justify-content: center;
             gap: 20px;
             margin-top: 10px;
+            flex-wrap: wrap;
         }
         .legend-item {
             display: flex;
@@ -104,86 +153,159 @@
             flex-direction: column;
             gap: 20px;
         }
+        .loading {
+            display: none;
+            text-align: center;
+            color: #3498db;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .loading.active {
+            display: block;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border-left-color: #3498db;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Dark mode toggle */
+        .theme-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #2c3e50;
+            font-size: 20px;
+            padding: 5px;
+        }
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .results {
+                flex-direction: column;
+            }
+            .chart-container {
+                width: 100%;
+            }
+            label {
+                width: 150px;
+            }
+        }
     </style>
 </head>
 <body>
+    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">🌓</button>
     <h1>Real-time Speech Signal Analyzer</h1>
     <div class="container">
-        <div class="status" id="status">Ready</div>
+        <div class="status" id="status" aria-live="polite">Ready</div>
+        <div class="loading" id="loading">
+            <span class="spinner"></span> Initializing audio...
+        </div>
         <div class="controls">
-            <button id="startButton">Start Analyzing</button>
-            <button id="stopButton" disabled>Stop</button>
+            <button id="startButton" aria-label="Start analysis">Start Analyzing</button>
+            <button id="stopButton" disabled aria-label="Stop analysis">Stop</button>
+            <button id="pauseButton" disabled aria-label="Pause visualization">Pause Display</button>
+            <button id="exportButton" disabled aria-label="Export results">Export Data</button>
         </div>
         
         <div class="parameters">
             <h3>Analysis Parameters</h3>
-            <div>
+            <div class="param-group">
                 <label for="bufferSize">Buffer Size:</label>
-                <select id="bufferSize">
+                <select id="bufferSize" aria-label="Select buffer size">
                     <option value="256">256 samples</option>
                     <option value="512">512 samples</option>
                     <option value="1024" selected>1024 samples</option>
                     <option value="2048">2048 samples</option>
                     <option value="4096">4096 samples</option>
                 </select>
+                <span class="tooltip" data-tooltip="Buffer size determines how many audio samples are processed at once. Smaller values give more frequent updates but may use more CPU.">ⓘ</span>
             </div>
-            <div>
+            <div class="param-group">
                 <label for="zcrThreshold">Zero-Crossing Threshold:</label>
-                <input type="range" id="zcrThreshold" value="35" min="20" max="100" step="1">
+                <input type="range" id="zcrThreshold" value="35" min="20" max="100" step="1" aria-label="Zero crossing rate threshold">
                 <span id="zcrThresholdValue">35</span>
+                <span class="tooltip" data-tooltip="Zero-crossing rate (ZCR) is the rate at which the signal changes from positive to negative or vice versa. Higher values are typical for unvoiced sounds like 's', 'f'.">ⓘ</span>
             </div>
-            <div>
+            <div class="param-group">
                 <label for="energyThreshold">Energy Threshold:</label>
-                <input type="range" id="energyThreshold" value="0.002" min="0.0001" max="0.01" step="0.0001">
+                <input type="range" id="energyThreshold" value="0.002" min="0.0001" max="0.01" step="0.0001" aria-label="Energy threshold">
                 <span id="energyThresholdValue">0.002</span>
+                <span class="tooltip" data-tooltip="Energy measures the intensity of the sound. Higher values indicate louder sounds. This threshold helps distinguish between speech and silence.">ⓘ</span>
             </div>
-            <div>
+            <div class="param-group">
                 <label for="historyLength">Display History (seconds):</label>
-                <input type="range" id="historyLength" value="3" min="1" max="10" step="0.5">
+                <input type="range" id="historyLength" value="3" min="1" max="10" step="0.5" aria-label="Display history length">
                 <span id="historyLengthValue">3</span>
+                <span class="tooltip" data-tooltip="Controls how much of the audio history to show in the visualizations.">ⓘ</span>
             </div>
         </div>
 
         <div class="visualization-section">
             <div class="chart-container">
-                <div class="chart-title">Real-time Audio Waveform</div>
-                <canvas id="waveformCanvas"></canvas>
+                <div class="chart-title">Real-time Audio Waveform <span class="tooltip" data-tooltip="The waveform shows the amplitude of the audio signal over time. Voiced sounds have regular patterns, unvoiced sounds look more random.">ⓘ</span></div>
+                <canvas id="waveformCanvas" aria-label="Audio waveform visualization"></canvas>
             </div>
             
             <div class="results">
                 <div class="chart-container">
-                    <div class="chart-title">Zero-Crossing Rate</div>
-                    <canvas id="zcrCanvas"></canvas>
-                    <div class="metric-display" id="currentZcr">ZCR: 0</div>
+                    <div class="chart-title">Zero-Crossing Rate <span class="tooltip" data-tooltip="Zero-crossing rate counts how many times the audio signal crosses the zero line. Unvoiced consonants like 's', 'f', 'th' have high ZCR values.">ⓘ</span></div>
+                    <canvas id="zcrCanvas" aria-label="Zero-crossing rate visualization"></canvas>
+                    <div class="metric-display" id="currentZcr" aria-live="polite">ZCR: 0</div>
                 </div>
                 <div class="chart-container">
-                    <div class="chart-title">Energy</div>
-                    <canvas id="energyCanvas"></canvas>
-                    <div class="metric-display" id="currentEnergy">Energy: 0</div>
+                    <div class="chart-title">Energy <span class="tooltip" data-tooltip="Energy indicates the loudness or intensity of the sound. Voiced sounds typically have higher energy than unvoiced ones.">ⓘ</span></div>
+                    <canvas id="energyCanvas" aria-label="Energy visualization"></canvas>
+                    <div class="metric-display" id="currentEnergy" aria-live="polite">Energy: 0</div>
                 </div>
             </div>
             
             <div class="chart-container">
-                <div class="chart-title">Voiced/Unvoiced Classification</div>
-                <canvas id="classificationCanvas"></canvas>
+                <div class="chart-title">Voiced/Unvoiced Classification <span class="tooltip" data-tooltip="This shows the classification of each audio frame. Blue = voiced sounds (vowels, 'm', 'n'), Red = unvoiced sounds ('s', 'f', 'th'), Gray = silence.">ⓘ</span></div>
+                <canvas id="classificationCanvas" aria-label="Voice classification visualization"></canvas>
                 <div class="legend">
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #3498db;"></div>
-                        <div>Voiced</div>
+                        <div>Voiced (vowels, 'm', 'n')</div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #e74c3c;"></div>
-                        <div>Unvoiced</div>
+                        <div>Unvoiced ('s', 'f', 'th')</div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #95a5a6;"></div>
                         <div>Silence</div>
                     </div>
                 </div>
-                <div class="metric-display" id="currentClassification">Classification: -</div>
+                <div class="metric-display" id="currentClassification" aria-live="polite">Classification: -</div>
             </div>
         </div>
     </div>
     <script src="processor.js" type="module"></script>
+    <script>
+        // Initialize dark mode
+        const themeToggle = document.getElementById('themeToggle');
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            if (document.body.classList.contains('dark-mode')) {
+                themeToggle.textContent = '☀️';
+                themeToggle.setAttribute('aria-label', 'Toggle light mode');
+            } else {
+                themeToggle.textContent = '🌓';
+                themeToggle.setAttribute('aria-label', 'Toggle dark mode');
+            }
+        });
+    </script>
 </body>
 </html>
