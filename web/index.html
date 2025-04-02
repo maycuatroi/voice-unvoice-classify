@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Speech Signal Analyzer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        canvas {
+            width: 100%;
+            height: 150px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+        }
+        .results {
+            display: flex;
+            gap: 20px;
+        }
+        .chart-container {
+            flex: 1;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status {
+            text-align: center;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #2c3e50;
+        }
+        .chart-title {
+            text-align: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .parameters {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        label {
+            display: inline-block;
+            width: 200px;
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 10px;
+        }
+        .metric-display {
+            font-size: 24px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        .visualization-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-time Speech Signal Analyzer</h1>
+    <div class="container">
+        <div class="status" id="status">Ready</div>
+        <div class="controls">
+            <button id="startButton">Start Analyzing</button>
+            <button id="stopButton" disabled>Stop</button>
+        </div>
+        
+        <div class="parameters">
+            <h3>Analysis Parameters</h3>
+            <div>
+                <label for="bufferSize">Buffer Size:</label>
+                <select id="bufferSize">
+                    <option value="256">256 samples</option>
+                    <option value="512">512 samples</option>
+                    <option value="1024" selected>1024 samples</option>
+                    <option value="2048">2048 samples</option>
+                    <option value="4096">4096 samples</option>
+                </select>
+            </div>
+            <div>
+                <label for="zcrThreshold">Zero-Crossing Threshold:</label>
+                <input type="range" id="zcrThreshold" value="35" min="20" max="100" step="1">
+                <span id="zcrThresholdValue">35</span>
+            </div>
+            <div>
+                <label for="energyThreshold">Energy Threshold:</label>
+                <input type="range" id="energyThreshold" value="0.002" min="0.0001" max="0.01" step="0.0001">
+                <span id="energyThresholdValue">0.002</span>
+            </div>
+            <div>
+                <label for="historyLength">Display History (seconds):</label>
+                <input type="range" id="historyLength" value="3" min="1" max="10" step="0.5">
+                <span id="historyLengthValue">3</span>
+            </div>
+        </div>
+
+        <div class="visualization-section">
+            <div class="chart-container">
+                <div class="chart-title">Real-time Audio Waveform</div>
+                <canvas id="waveformCanvas"></canvas>
+            </div>
+            
+            <div class="results">
+                <div class="chart-container">
+                    <div class="chart-title">Zero-Crossing Rate</div>
+                    <canvas id="zcrCanvas"></canvas>
+                    <div class="metric-display" id="currentZcr">ZCR: 0</div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">Energy</div>
+                    <canvas id="energyCanvas"></canvas>
+                    <div class="metric-display" id="currentEnergy">Energy: 0</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Voiced/Unvoiced Classification</div>
+                <canvas id="classificationCanvas"></canvas>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #3498db;"></div>
+                        <div>Voiced</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #e74c3c;"></div>
+                        <div>Unvoiced</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #95a5a6;"></div>
+                        <div>Silence</div>
+                    </div>
+                </div>
+                <div class="metric-display" id="currentClassification">Classification: -</div>
+            </div>
+        </div>
+    </div>
+    <script src="processor.js" type="module"></script>
+</body>
+</html>
