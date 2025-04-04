@@ -9,11 +9,15 @@ class Visualizer {
         this.energyCanvas = options.energyCanvas;
         this.classificationCanvas = options.classificationCanvas;
         
+        // FFT canvas
+        this.fftCanvas = options.fftCanvas;
+        
         // Canvas contexts
         this.waveformCtx = this.waveformCanvas ? this.waveformCanvas.getContext('2d') : null;
         this.zcrCtx = this.zcrCanvas ? this.zcrCanvas.getContext('2d') : null;
         this.energyCtx = this.energyCanvas ? this.energyCanvas.getContext('2d') : null;
         this.classificationCtx = this.classificationCanvas ? this.classificationCanvas.getContext('2d') : null;
+        this.fftCtx = this.fftCanvas ? this.fftCanvas.getContext('2d') : null;
         
         // Display elements
         this.currentZcrElement = options.currentZcrElement;
@@ -46,7 +50,8 @@ class Visualizer {
             this.waveformCanvas, 
             this.zcrCanvas, 
             this.energyCanvas, 
-            this.classificationCanvas
+            this.classificationCanvas,
+            this.fftCanvas
         ].filter(canvas => canvas);
         
         canvases.forEach(canvas => {
@@ -92,7 +97,8 @@ class Visualizer {
             classificationHistory,
             currentZcr,
             currentEnergy,
-            currentClassification
+            currentClassification,
+            fftData
         } = this.dataProvider.getData();
         
         if (!isActive) {
@@ -120,6 +126,11 @@ class Visualizer {
             // Draw classification
             if (this.classificationCtx && this.classificationCanvas) {
                 this.drawClassification(classificationHistory);
+            }
+            
+            // Draw FFT
+            if (this.fftCtx && this.fftCanvas) {
+                this.drawFFT(fftData);
             }
         }
         
@@ -343,6 +354,125 @@ class Visualizer {
             }
             
             this.classificationCtx.fillRect(x, 0, barWidth, height);
+        });
+    }
+    
+    // Draw FFT spectrum
+    drawFFT(fftData) {
+        if (!this.fftCtx || !this.fftCanvas || !fftData) return;
+        
+        const width = this.fftCanvas.width;
+        const height = this.fftCanvas.height;
+        
+        this.fftCtx.clearRect(0, 0, width, height);
+        
+        // Check if dark mode is active
+        const isDarkMode = document.body.classList.contains('dark-mode');
+        
+        // Create gradient for the bars - using a richer spectrum for better visual distinction
+        const gradient = this.fftCtx.createLinearGradient(0, height, 0, 0);
+        gradient.addColorStop(0, '#3498db');    // Blue for low amplitudes
+        gradient.addColorStop(0.3, '#2ecc71');  // Green for medium-low
+        gradient.addColorStop(0.6, '#f39c12');  // Orange for medium-high
+        gradient.addColorStop(1, '#e74c3c');    // Red for high amplitudes
+        
+        this.fftCtx.fillStyle = gradient;
+        
+        // Calculate how many FFT bins to show
+        // We'll limit to the first 10kHz which contains most speech information
+        const maxFreq = 10000;
+        const sampleRate = 48000; // Using the actual sample rate you specified
+        const maxBin = Math.min(fftData.length, Math.floor(maxFreq / (sampleRate / 2 / fftData.length)));
+        
+        // Bar width based on how many bins we're showing
+        const barWidth = width / maxBin;
+        
+        // Draw speech frequency bands in the background first
+        this.addFrequencyBandIndicators();
+        
+        // Draw each frequency bin as a bar
+        for (let i = 0; i < maxBin; i++) {
+            // Get normalized magnitude (should be 0-1)
+            let magnitude = fftData[i];
+            
+            // Make sure it's within range
+            magnitude = Math.max(0, Math.min(1, magnitude));
+            
+            // Apply a slight logarithmic scaling to emphasize smaller values
+            // This helps visualize weaker frequency components in speech
+            const logFactor = 0.3; // Adjust for more/less logarithmic effect
+            const scaledMagnitude = logFactor * Math.log10(1 + 9 * magnitude);
+            
+            const barHeight = scaledMagnitude * height;
+            const x = i * barWidth;
+            const y = height - barHeight;
+            
+            this.fftCtx.fillRect(x, y, barWidth - 1, barHeight);
+        }
+        
+        // Add frequency axis labels
+        const textColor = isDarkMode ? '#ecf0f1' : '#333';
+        const bgColor = isDarkMode ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.7)';
+        
+        this.fftCtx.font = '10px Arial';
+        this.fftCtx.textAlign = 'center';
+        
+        // Draw frequency markers optimized for speech frequencies
+        const frequencies = [250, 500, 1000, 2000, 3000, 4000, 5000, 7500, 10000];
+        frequencies.forEach(freq => {
+            const bin = Math.floor(freq / (sampleRate / 2 / fftData.length));
+            if (bin < maxBin) {
+                const x = bin * barWidth;
+                
+                // Draw a background behind text for better contrast
+                const text = `${freq < 1000 ? freq : (freq/1000)+'k'}`;
+                const textWidth = this.fftCtx.measureText(text).width;
+                this.fftCtx.fillStyle = bgColor;
+                this.fftCtx.fillRect(x - textWidth/2 - 2, height - 18, textWidth + 4, 14);
+                this.fftCtx.fillStyle = textColor;
+                this.fftCtx.fillText(text, x, height - 7);
+            }
+        });
+    }
+    
+    // Add indicators for speech-relevant frequency bands
+    addFrequencyBandIndicators() {
+        if (!this.fftCtx || !this.fftCanvas) return;
+        
+        const width = this.fftCanvas.width;
+        const height = this.fftCanvas.height;
+        const sampleRate = 48000;
+        
+        // Define important speech frequency bands
+        const bands = [
+            { name: "F0", min: 80, max: 255, color: "rgba(255,105,180,0.1)", desc: "Pitch" },
+            { name: "F1", min: 300, max: 800, color: "rgba(100,149,237,0.1)", desc: "Vowel" },
+            { name: "F2", min: 850, max: 2500, color: "rgba(46,204,113,0.1)", desc: "Vowel quality" },
+            { name: "F3", min: 2500, max: 3500, color: "rgba(241,196,15,0.1)", desc: "Voice quality" },
+            { name: "Consonants", min: 3500, max: 8000, color: "rgba(231,76,60,0.1)", desc: "Consonants" }
+        ];
+        
+        // Calculate bin width for the 10kHz range
+        const maxFreq = 10000;
+        const maxBin = Math.floor(maxFreq / (sampleRate / 2 / 1024));
+        const barWidth = width / maxBin;
+        
+        // Draw frequency bands
+        bands.forEach(band => {
+            const binStart = Math.floor(band.min / (sampleRate / 2 / 1024));
+            const binEnd = Math.floor(band.max / (sampleRate / 2 / 1024));
+            
+            // Draw band background
+            this.fftCtx.fillStyle = band.color;
+            this.fftCtx.fillRect(binStart * barWidth, 0, (binEnd - binStart) * barWidth, height);
+            
+            // Add band label at the top
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            this.fftCtx.fillStyle = isDarkMode ? "#ecf0f1" : "#333";
+            this.fftCtx.font = "10px Arial";
+            this.fftCtx.textAlign = "center";
+            const labelX = (binStart + (binEnd - binStart) / 2) * barWidth;
+            this.fftCtx.fillText(band.name, labelX, 10);
         });
     }
     

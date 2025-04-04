@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const zcrCanvas = document.getElementById('zcrCanvas');
     const energyCanvas = document.getElementById('energyCanvas');
     const classificationCanvas = document.getElementById('classificationCanvas');
+    const fftCanvas = document.getElementById('fftCanvas');
     
     // Parameter elements
     const bufferSizeSelect = document.getElementById('bufferSize');
@@ -39,6 +40,7 @@ document.addEventListener('DOMContentLoaded', function() {
         zcrCanvas,
         energyCanvas,
         classificationCanvas,
+        fftCanvas,
         currentZcrElement,
         currentEnergyElement,
         currentClassificationElement,
@@ -161,7 +163,46 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Create analyser node for visualization
             analyserNode = audioContext.createAnalyser();
-            analyserNode.fftSize = 2048;
+            // Setup for FFT analysis
+            const fftSize = 2048; // Already set in your code
+            analyserNode.fftSize = fftSize;
+            analyserNode.smoothingTimeConstant = 0.85; // Add slight smoothing for better visualization
+            const frequencyBinCount = analyserNode.frequencyBinCount; // Should be 1024 (half of fftSize)
+            const fftDataArray = new Float32Array(frequencyBinCount);
+
+            // Create a function to get FFT data periodically
+            function updateFFTData() {
+                // Only process FFT data if analyser node exists and data provider is active
+                if (analyserNode && dataProvider.isActive && dataProvider.audioContext) {
+                    try {
+                        // Get frequency data from analyser
+                        analyserNode.getFloatFrequencyData(fftDataArray);
+                        
+                        // Normalize from dB to a 0.0-1.0 range for easier visualization
+                        // FFT data is typically in dB scale (-100 to 0)
+                        const normalizedFFT = new Float32Array(frequencyBinCount);
+                        for (let i = 0; i < frequencyBinCount; i++) {
+                            // Convert from dB (-100 to 0) to 0.0-1.0 range
+                            normalizedFFT[i] = (fftDataArray[i] + 100) / 100;
+                        }
+                        
+                        // Pass to the data provider
+                        dataProvider.handleFeatures({
+                            fftData: normalizedFFT
+                        });
+                    } catch (error) {
+                        console.warn("Error updating FFT data:", error);
+                    }
+                }
+                
+                // Schedule next update
+                if (analyserNode) {
+                    requestAnimationFrame(updateFFTData);
+                }
+            }
+
+            // Start FFT updates
+            updateFFTData();
             
             // Get buffer size
             const bufferSize = parseInt(bufferSizeSelect.value);
@@ -334,6 +375,10 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             body.dark-mode button:hover:not(:disabled) {
                 background-color: #74b9ff;
+            }
+            /* Adjustments for FFT visualization in dark mode */
+            body.dark-mode .legend-color {
+                border: 1px solid rgba(255,255,255,0.3);
             }
         `;
         document.head.appendChild(style);

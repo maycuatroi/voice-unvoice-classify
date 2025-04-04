@@ -290,6 +290,29 @@
                 </div>
                 <div class="metric-display" id="currentClassification" aria-live="polite">Classification: -</div>
             </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Frequency Spectrum <span class="tooltip" data-tooltip="The frequency spectrum shows how much energy is present at different frequencies. Vowels typically show clear peaks (formants), while consonants have more spread-out energy.">ⓘ</span></div>
+                <canvas id="fftCanvas" aria-label="Frequency spectrum visualization"></canvas>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #3498db;"></div>
+                        <div>Low</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #2ecc71;"></div>
+                        <div>Medium</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f39c12;"></div>
+                        <div>High</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #e74c3c;"></div>
+                        <div>Very High</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="processor.js" type="module"></script>
